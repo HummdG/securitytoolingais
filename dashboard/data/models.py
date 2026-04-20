@@ -42,6 +42,7 @@ MATURITY_COLORS = {
 class ChecklistItem:
     maturity_level: int   # 1–5
     item_name: str
+    weight: float = 1.0   # importance weighting (from weights workbook)
 
 
 @dataclass

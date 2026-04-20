@@ -96,17 +96,51 @@ def _normalise_status(status_raw) -> str:
 # ---------------------------------------------------------------------------
 
 def get_excel_path() -> str:
-    """Return the absolute path to the workbook."""
+    """Return the absolute path to the main workbook."""
     here = os.path.dirname(os.path.abspath(__file__))
     root = os.path.dirname(here)
     parent = os.path.dirname(root)
     return os.path.join(parent, "Acceptance Into Support Checklist .xlsm")
 
 
+def get_weights_path() -> str:
+    """Return the absolute path to the weights workbook."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.dirname(here)
+    parent = os.path.dirname(root)
+    return os.path.join(parent, "Acceptance Into Support Checklist weights.xlsm")
+
+
+def _load_item_weights(weights_path: str) -> dict[int, float]:
+    """
+    Read per-checklist-item weights from the weights workbook.
+    The weights file has an extra 'Weightings' column at col 2 in Security Tooling.
+    Returns {row_idx (0-based): weight}.
+    Falls back to empty dict if the file doesn't exist.
+    """
+    if not os.path.exists(weights_path):
+        return {}
+    wb = openpyxl.load_workbook(weights_path, read_only=True, keep_vba=False, data_only=True)
+    ws = wb["Security Tooling"]
+    rows = list(ws.iter_rows(values_only=True, max_row=35))
+    wb.close()
+    valid_rows = {r for r, _ in ITEM_ROW_MAP}
+    weights: dict[int, float] = {}
+    for r in valid_rows:
+        if r < len(rows):
+            w = rows[r][2]   # col 2 = Weightings column
+            if isinstance(w, (int, float)) and w > 0:
+                weights[r] = float(w)
+    return weights
+
+
 def parse_excel(filepath: str) -> list[ToolSummary]:
     """
     Read the workbook and return a list of ToolSummary objects (one per tool).
+    Weights are loaded from the companion weights workbook if present.
     """
+    item_weights = _load_item_weights(get_weights_path())
+
     wb = openpyxl.load_workbook(
         filepath, read_only=True, keep_vba=False, data_only=True
     )
@@ -143,7 +177,8 @@ def parse_excel(filepath: str) -> list[ToolSummary]:
         item_name = _clean(row[1]) if len(row) > 1 else ""
         if not item_name:
             continue
-        item = ChecklistItem(maturity_level=maturity_level, item_name=item_name)
+        weight = item_weights.get(row_idx, 1.0)
+        item = ChecklistItem(maturity_level=maturity_level, item_name=item_name, weight=weight)
 
         for tool_name, col_start in TOOL_COL_MAP.items():
             applicable_raw = row[col_start]     if len(row) > col_start     else None
